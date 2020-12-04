@@ -1,0 +1,7 @@
+README.md
+setup.py
+fbw.egg-info/PKG-INFO
+fbw.egg-info/SOURCES.txt
+fbw.egg-info/dependency_links.txt
+fbw.egg-info/requires.txt
+fbw.egg-info/top_level.txt

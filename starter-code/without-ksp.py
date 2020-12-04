@@ -7,8 +7,8 @@ import time
 from computers import *
 
 # Load the pickle files
-actions = pickle.load(open("actions.pickle", "rb"))
-states = pickle.load(open("states.pickle", "rb"))
+actions = pickle.load(open("data/actions.pickle", "rb"))
+states = pickle.load(open("data/states.pickle", "rb"))
 timestep = 0
 
 # Argument parsing
@@ -23,8 +23,8 @@ def readout_state():
 
 
 def execute_action(action):
-    print(action)
-    print(actions[timestep])
+    # print(action)
+    # print(actions[timestep])
     for k in action.keys():
         assert(action[k] == actions[timestep][k])
 
@@ -35,8 +35,10 @@ def allocate_flight_computers(arguments):
     n_correct_fc = math.ceil(arguments.correct_fraction * n_fc)
     n_incorrect_fc = n_fc - n_correct_fc
     state = readout_state()
-    for _ in range(n_correct_fc):
-        flight_computers.append(FlightComputer(state))
+    for i in range(n_correct_fc):
+        flight_computers.append(FlightComputer(state, i))
+        flight_computers[i].start()
+
     for _ in range(n_incorrect_fc):
         flight_computers.append(allocate_random_flight_computer(state))
     # Add the peers for the consensus protocol

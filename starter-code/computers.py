@@ -1,11 +1,13 @@
 import numpy as np
 import time
+from threading import Thread
+from flask import Flask
 
 
+class FlightComputer(Thread):
 
-class FlightComputer:
-
-    def __init__(self, state):
+    def __init__(self, state, id):
+        Thread.__init__(self)
         self.state = state
         self.current_stage_index = 0
         self.peers = []
@@ -21,6 +23,13 @@ class FlightComputer:
             self._handle_stage_8,
             self._handle_stage_9]
         self.stage_handler = self.stage_handlers[self.current_stage_index]
+        self.id = id
+        self.computerServer = Flask(__name__)
+
+    def run(self):
+        print("Thread {} launched".format(self.id))
+        self.computerServer.run(port=(5000+self.id))
+
 
     def add_peer(self, peer):
         self.peers.append(peer)
@@ -149,8 +158,8 @@ class FlightComputer:
 
 class FullThrottleFlightComputer(FlightComputer):
 
-    def __init__(self, state):
-        super(FullThrottleFlightComputer, self).__init__(state)
+    def __init__(self, state, id):
+        super(FullThrottleFlightComputer, self).__init__(state, id)
 
     def sample_next_action(self):
         action = super(FullThrottleFlightComputer, self).sample_next_action()
@@ -161,8 +170,8 @@ class FullThrottleFlightComputer(FlightComputer):
 
 class RandomThrottleFlightComputer(FlightComputer):
 
-    def __init__(self, state):
-        super(RandomThrottleFlightComputer, self).__init__(state)
+    def __init__(self, state, id):
+        super(RandomThrottleFlightComputer, self).__init__(state, id)
 
     def sample_next_action(self):
         action = super(RandomThrottleFlightComputer, self).sample_next_action()
@@ -173,8 +182,8 @@ class RandomThrottleFlightComputer(FlightComputer):
 
 class SlowFlightComputer(FlightComputer):
 
-    def __init__(self, state):
-        super(SlowFlightComputer, self).__init__(state)
+    def __init__(self, state, id):
+        super(SlowFlightComputer, self).__init__(state, id)
 
     def sample_next_action(self):
         action = super(SlowFlightComputer, self).sample_next_action()
@@ -185,8 +194,8 @@ class SlowFlightComputer(FlightComputer):
 
 class CrashingFlightComputer(FlightComputer):
 
-    def __init__(self, state):
-        super(CrashingFlightComputer, self).__init__(state)
+    def __init__(self, state, id):
+        super(CrashingFlightComputer, self).__init__(state, id)
 
     def sample_next_action(self):
         action = super(SlowFlightComputer, self).sample_next_action()
@@ -198,7 +207,7 @@ class CrashingFlightComputer(FlightComputer):
 
 
 
-def allocate_random_flight_computer(state):
+def allocate_random_flight_computer(state, id):
     computers = [
         FullThrottleFlightComputer,
         RandomThrottleFlightComputer,
