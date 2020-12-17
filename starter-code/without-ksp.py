@@ -3,6 +3,10 @@ import math
 import pickle
 import numpy as np
 import time
+import random
+import requests
+import json
+from multiprocessing import Process
 
 from computers import *
 
@@ -29,22 +33,42 @@ def execute_action(action):
         assert(action[k] == actions[timestep][k])
 
 
+def start_computer(id, n, state, random_computer=False):
+    timeout = random.uniform(1.0, 1.5)
+    heartbeat = 0.1
+    scale = 1
+
+    if random_computer:
+        computer = random_flight_computer()
+    else:
+        computer = FlightComputer
+    
+    computer = computer(state, id, election_timeout=timeout*scale, heartbeat=heartbeat*scale)
+    return computer
+
+
 def allocate_flight_computers(arguments):
     flight_computers = []
     n_fc = arguments.flight_computers
     n_correct_fc = math.ceil(arguments.correct_fraction * n_fc)
     n_incorrect_fc = n_fc - n_correct_fc
     state = readout_state()
+
     for i in range(n_correct_fc):
-        flight_computers.append(FlightComputer(state, i))
+        computer = start_computer(i, n_fc, state)
+        flight_computers.append(computer)
 
     for _ in range(n_incorrect_fc):
-        flight_computers.append(allocate_random_flight_computer(state))
-    # Add the peers for the consensus protocol
-    for fc in flight_computers:
-        for peer in flight_computers:
-            if fc != peer:
-                fc.add_peer(peer)
+        computer = start_computer(i, n_fc, state)
+        flight_computers.append(computer)
+    
+    for computer in flight_computers:
+        computer.daemon = True
+        computer.start()
+        peers = flight_computers[:]
+        peers.remove(computer)
+        for peer in peers:
+            computer.add_peer(peer)
 
     return flight_computers
 
@@ -53,31 +77,41 @@ flight_computers = allocate_flight_computers(arguments)
 
 
 def select_leader():
-    leader_index = np.random.randint(0, len(flight_computers))
+    leader = 0
+    while True:
+        resp = requests.get(f'http://127.0.0.1:{5000 + leader}/get_leader')
+        if resp.status_code != 200:
+            continue
+        
+        resp_leader = json.loads(resp.content)['leader']
+        if resp_leader != -1:
+            return flight_computers[resp_leader]
+        
+        leader = (leader + 1) % len(flight_computers)
 
-    return flight_computers[leader_index]
 
-
-def next_action(state):
-    leader = select_leader()
-    state_decided = leader.decide_on_state(state)
-    if not state_decided:
-        return None
-    action = leader.sample_next_action()
-    action_decided = leader.decide_on_action(action)
-    if action_decided:
-        return action
-
+def request_action(leader, state):
+    resp = requests.get(f'http://127.0.0.1:{5000 + leader}/request_action', data=json.dumps(state))
+    if resp.status_code == 200:
+        return json.loads(resp.content)
     return None
 
+
+import time
+time.sleep(1)
+
+timestep = 1
 complete = False
+leader = select_leader()
+
 try:
     while not complete:
-        timestep += 1
+        if timestep % 1000 == 0:
+            print(timestep, '/', len(states))
         state = readout_state()
-        leader = select_leader()
         state_decided = leader.decide_on_state(state)
         if not state_decided:
+            print('State not decided!')
             continue
         action = leader.sample_next_action()
         if action is None:
@@ -85,10 +119,17 @@ try:
             continue
         if leader.decide_on_action(action):
             execute_action(action)
+            timestep += 1
         else:
-            timestep -= 1
+            print('Action not decided!')
 except Exception as e:
-    print(e)
+    import traceback
+    traceback.print_exc()
+except KeyboardInterrupt:
+    pass
+
+for computer in flight_computers:
+    computer.stop()
 
 if complete:
     print("Success!")

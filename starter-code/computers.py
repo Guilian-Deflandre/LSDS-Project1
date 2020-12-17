@@ -4,11 +4,9 @@ from threading import Thread
 
 from raft import Node
 
-
-class FlightComputer():
-
-    def __init__(self, state, id):
-        Thread.__init__(self)
+class FlightComputer(Thread):
+    def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
+        super().__init__()
         self.state = state
         self.current_stage_index = 0
         self.peers = []
@@ -25,10 +23,14 @@ class FlightComputer():
             self._handle_stage_9]
         self.stage_handler = self.stage_handlers[self.current_stage_index]
         self.id = id
-        self.raft = Node(id=self.id)
+        self.raft = Node(id, election_timeout, heartbeat)
+    
+    def run(self):
+        self.raft.start()
 
     def add_peer(self, peer):
         self.peers.append(peer)
+        self.raft.add_peer(peer.id)
 
     def _handle_stage_1(self):
         action = {"pitch": 90, "throttle": 1.0, "heading": 90, "stage": False, "next_state": False}
@@ -149,6 +151,9 @@ class FlightComputer():
 
     def deliver_state(self, state):
         self.state = state
+    
+    def stop(self):
+        self.raft.stop()
 
 
 
@@ -203,7 +208,7 @@ class CrashingFlightComputer(FlightComputer):
 
 
 
-def allocate_random_flight_computer(state, id):
+def random_flight_computer():
     computers = [
         FullThrottleFlightComputer,
         RandomThrottleFlightComputer,
@@ -211,4 +216,4 @@ def allocate_random_flight_computer(state, id):
         CrashingFlightComputer,
     ]
 
-    return computers[np.random.randint(0, len(computers))](state)
+    return computers[np.random.randint(0, len(computers))]
