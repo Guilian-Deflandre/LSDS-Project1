@@ -1,10 +1,11 @@
 import numpy as np
 import time
 from threading import Thread
-from flask import Flask
+
+from raft import Node
 
 
-class FlightComputer(Thread):
+class FlightComputer():
 
     def __init__(self, state, id):
         Thread.__init__(self)
@@ -24,12 +25,7 @@ class FlightComputer(Thread):
             self._handle_stage_9]
         self.stage_handler = self.stage_handlers[self.current_stage_index]
         self.id = id
-        self.computerServer = Flask(__name__)
-
-    def run(self):
-        print("Thread {} launched".format(self.id))
-        self.computerServer.run(port=(5000+self.id))
-
+        self.raft = Node(id=self.id)
 
     def add_peer(self, peer):
         self.peers.append(peer)
