@@ -10,6 +10,7 @@ from time import monotonic as now
 import json
 from concurrent.futures import ThreadPoolExecutor
 import random
+from multiprocessing import Process
 
 
 NodeState = Enum('NodeState', 'Follower Candidate Leader Dead')
@@ -63,9 +64,27 @@ class Node:
         self.leader = -1
 
     def add_peer(self, peer):
+        """
+        Add peer in the consensus cluster
+
+        PARAMETERS
+        peer: FlightComputer
+            The peer to be add
+        RETURN
+            /
+        """
         self.peers.add(peer)
 
     def start(self):
+        """
+        Start the node namely by initializing its FastApi server (see https://
+        www.uvicorn.org/)
+
+        PARAMETERS
+            /
+        RETURN
+            /
+        """
         print(f'[Node {self.id}][{self.state.name}] Starting with peers {self.peers}')
         app = FastAPI()
 
@@ -75,27 +94,75 @@ class Node:
         app.get('/request_action')(self.request_action)
         app.get('/stop')(self.stop)
         self._start_election_timer()
-        uvicorn.run(app, host="127.0.0.1", port=5000 + self.id, log_level="critical")
-    
+        self.proc = Process(target=uvicorn.run, args=(app,),
+                            kwargs={"host":"127.0.0.1",
+                                    "port":"{}".format(5000 + self.id),
+                                    "log_level": "error"}, daemon=True)
+        self.proc.start()
+
     def get_leader(self):
+        """
+        Provides the consensus leader using the uvicorn REST API
+
+        PARAMETERS
+            /
+        RETURN
+        _: LeaderReply
+            The leader format using LeaderReply
+        """
         return LeaderReply(leader=self.leader)
-    
+
     def request_action(self, request: ActionRequest):
+        """
+        Change the state of the peer given an ActionRequest
+
+        PARAMETERS
+        /
+        RETURN
+        _: ActionReply
+            The reply of the request made of nothing
+        """
         state = request.state
         return ActionReply({})
-    
+
     def stop(self):
+        """
+        Stop in an efficient way all processes used by self
+
+        PARAMETERS
+        /
+        RETURN
+        /
+        """
         self._election_timer.stop()
         self._leader_send_heartbeat_timer.stop()
         self.state = NodeState.Dead
+        self.proc.kill()
 
 
     def _start_election_timer(self):
+        """
+        Start the timer of an election used to avoid deadlock during this
+        process
+
+        PARAMETERS
+        /
+        RETURN
+        /
+        """
         # with self._lock:
         self._term_start_election_timer = self.term
         self._election_timer.start()
 
     def start_election(self):
+        """
+        Initiate the election of a leader in the consensus cluster
+
+        PARAMETERS
+        /
+        RETURN
+        /
+        """
         print(f'[Node {self.id}][Candidate] Now Candidate')
         # with self._lock:
         self.state = NodeState.Candidate
@@ -144,6 +211,14 @@ class Node:
         self._start_election_timer()
 
     def become_follower(self, term, leader):
+        """
+        Initiate the election of a leader in the consensus cluster
+
+        PARAMETERS
+        /
+        RETURN
+        /
+        """
         # print(f'[Node {self.id}][Follower] Now follower at term {term}')
         # with self._lock:
         self.state = NodeState.Follower

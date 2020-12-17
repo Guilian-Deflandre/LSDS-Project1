@@ -42,7 +42,7 @@ def start_computer(id, n, state, random_computer=False):
         computer = random_flight_computer()
     else:
         computer = FlightComputer
-    
+
     computer = computer(state, id, election_timeout=timeout*scale, heartbeat=heartbeat*scale)
     return computer
 
@@ -61,7 +61,7 @@ def allocate_flight_computers(arguments):
     for _ in range(n_incorrect_fc):
         computer = start_computer(i, n_fc, state)
         flight_computers.append(computer)
-    
+
     for computer in flight_computers:
         computer.daemon = True
         computer.start()
@@ -82,11 +82,11 @@ def select_leader():
         resp = requests.get(f'http://127.0.0.1:{5000 + leader}/get_leader')
         if resp.status_code != 200:
             continue
-        
+
         resp_leader = json.loads(resp.content)['leader']
         if resp_leader != -1:
             return flight_computers[resp_leader]
-        
+
         leader = (leader + 1) % len(flight_computers)
 
 
@@ -130,6 +130,8 @@ except KeyboardInterrupt:
 
 for computer in flight_computers:
     computer.stop()
+
+time.sleep(1)
 
 if complete:
     print("Success!")
