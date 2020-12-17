@@ -37,7 +37,6 @@ def allocate_flight_computers(arguments):
     state = readout_state()
     for i in range(n_correct_fc):
         flight_computers.append(FlightComputer(state, i))
-        flight_computers[i].start()
 
     for _ in range(n_incorrect_fc):
         flight_computers.append(allocate_random_flight_computer(state))
