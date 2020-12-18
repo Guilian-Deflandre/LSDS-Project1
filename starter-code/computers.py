@@ -4,7 +4,7 @@ from threading import Thread
 
 from raft import Node
 
-class FlightComputer(Thread):
+class FlightComputer:
     def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
         super().__init__()
         self.state = state
@@ -25,7 +25,7 @@ class FlightComputer(Thread):
         self.id = id
         self.raft = Node(id, election_timeout, heartbeat)
 
-    def run(self):
+    def start(self):
         self.raft.start()
 
     def add_peer(self, peer):
@@ -154,7 +154,6 @@ class FlightComputer(Thread):
 
     def stop(self):
         self.raft.stop()
-        self.join()
 
 
 class FullThrottleFlightComputer(FlightComputer):
