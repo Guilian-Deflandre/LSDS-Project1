@@ -37,7 +37,7 @@ class AppendEntriesReply(BaseModel):
 
 
 class LeaderReply(BaseModel):
-    leader: int
+    leader: bool
 
 
 class ActionRequest(BaseModel):
@@ -48,8 +48,13 @@ class ActionReply(BaseModel):
     action: dict
 
 
+class ProposeAction(BaseModel):
+    state: dict
+    action: dict
+
+
 class Node:
-    def __init__(self, id, election_timeout, heartbeat):
+    def __init__(self, id, computer, election_timeout, heartbeat):
         super().__init__()
         self.id = id
         self.election_timeout = election_timeout
@@ -65,6 +70,7 @@ class Node:
         self.term = 0
         self._voted_for = None
         self.leader = -1
+        self.computer = computer
 
     def add_peer(self, peer):
         """
@@ -94,8 +100,9 @@ class Node:
 
         app.get('/vote_request')(self.get_vote_request)
         app.get('/append_entries')(self.get_append_entries)
-        app.get('/get_leader')(self.get_leader)
+        app.get('/is_leader')(self.is_leader)
         app.get('/request_action')(self.request_action)
+        app.get('/propose_action')(self.propose_action)
         app.get('/stop')(self.stop)
         self._start_election_timer()
         self.proc = Process(target=uvicorn.run, args=(app, ),
@@ -104,9 +111,9 @@ class Node:
                                     "log_level": "error"}, daemon=True)
         self.proc.start()
 
-    def get_leader(self):
+    def is_leader(self):
         """
-        Provides the consensus leader using the uvicorn REST API
+        TODO
 
         PARAMETERS
             /
@@ -114,8 +121,7 @@ class Node:
         _: LeaderReply
             The leader format using LeaderReply
         """
-        print(self.leader)
-        return LeaderReply(leader=self.leader)
+        return LeaderReply(leader=self.state == NodeState.Leader)
 
     def request_action(self, request: ActionRequest):
         """
@@ -127,8 +133,48 @@ class Node:
         _: ActionReply
             The reply of the request made of nothing
         """
-        state = request.state
-        return ActionReply({})
+        # print('Leader recv action request')
+        if self.state != NodeState.Leader:
+            print('nope', self.leader, self.id)
+            return ActionReply(action={})
+
+        action_leader = self.compute_action(request.state)
+
+        def send_propose_action(id):
+            try:
+                url = f'http://localhost:{5000 + id}/propose_action'
+                resp = requests.get(url, data=request, timeout=1)
+                if resp.status_code == 200:
+                    reply = json.dumps(resp.content)
+                    return reply
+                else:
+                    return None
+            except:
+                return None
+
+        vote_received = 0
+        with ThreadPoolExecutor() as executor:
+            replies = executor.map(send_propose_action, self.peers)
+            for reply in replies:
+                if reply is None:
+                    continue
+                elif reply == action_leader:
+                    vote_received += 1
+
+        if self.state == NodeState.Leader and vote_received >= len(self.peers) / 2:
+            return ActionReply(action=action_leader)
+        else:
+            return ActionReply(action={})
+    
+    def propose_action(self, request):
+        """
+        """
+        return ActionReply(action=self.compute_action(request.state))
+    
+    def compute_action(self, state):
+        self.computer.deliver_state(state)
+        action = self.computer.stange_handler()
+        return action
 
     def stop(self):
         """
@@ -187,7 +233,7 @@ class Node:
                 resp = requests.get(url, data=request.json())
                 if resp.status_code == 200:
                     reply = VoteReply.parse_raw(resp.content)
-                    return reply
+                    return id, reply
                 else:
                     return None
             except:
@@ -196,16 +242,16 @@ class Node:
         vote_received = 0
         with ThreadPoolExecutor() as executor:
             replies = executor.map(send_request, self.peers)
-            for reply in replies:
+            for id, reply in replies:
                 if reply is None:
                     continue
                 if reply.term > saved_current_term:
-                    self.become_follower(reply.term)
+                    self.become_follower(reply.term, id)
                     return
                 elif reply.term == saved_current_term and reply.granted:
                     vote_received += 1
 
-        if(self.state == NodeState.Candidate and
+        if (self.state == NodeState.Candidate and
            vote_received * 2 > len(self.peers)):
             # Won more than half of the votes, we are the leader now
             self.become_leader()
@@ -275,7 +321,7 @@ class Node:
                 resp = requests.get(url, data=request.json())
                 if resp.status_code == 200:
                     reply = AppendEntriesReply.parse_raw(resp.content)
-                    return reply
+                    return id, reply
                 else:
                     return None
             except:
@@ -283,14 +329,15 @@ class Node:
 
         with ThreadPoolExecutor() as executor:
             replies = executor.map(send_heartbeat, self.peers)
-            for i, reply in enumerate(replies):
+            for id, reply in replies:
                 if reply is None:
                     print(f'[Node {self.id}][Leader] did not receive a ' +
                           f'heartbeat response')
                     # Node is down/network partition
                     continue
                 if reply.term > saved_current_term:
-                    self.become_follower(reply.term, i)
+                    print('leader -> follower', id, reply.term)
+                    self.become_follower(reply.term, id)
                     return
 
     def get_vote_request(self, request: VoteRequest):
@@ -310,8 +357,7 @@ class Node:
         if request.term > self.term:
             self.become_follower(request.term, request.candidate)
 
-        if self.term == request.term and (self._voted_for is None or
-           self._voted_for == request.candidate):
+        if self.term == request.term and (self._voted_for is None or self._voted_for == request.candidate):
             reply = VoteReply(granted=True, term=self.term)
         else:
             reply = VoteReply(granted=False, term=self.term)

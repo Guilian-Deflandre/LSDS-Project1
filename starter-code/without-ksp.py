@@ -51,15 +51,14 @@ def allocate_flight_computers(arguments):
     flight_computers = []
     n_fc = arguments.flight_computers
     n_correct_fc = math.ceil(arguments.correct_fraction * n_fc)
-    n_incorrect_fc = n_fc - n_correct_fc
     state = readout_state()
 
     for i in range(n_correct_fc):
         computer = start_computer(i, n_fc, state)
         flight_computers.append(computer)
 
-    for _ in range(n_incorrect_fc):
-        computer = start_computer(i, n_fc, state)
+    for i in range(n_correct_fc, n_fc):
+        computer = start_computer(i, n_fc, state, random_computer=True)
         flight_computers.append(computer)
 
     for computer in flight_computers:
@@ -79,22 +78,16 @@ flight_computers = allocate_flight_computers(arguments)
 def select_leader():
     leader = 0
     while True:
-        resp = requests.get(f'http://127.0.0.1:{5000 + leader}/get_leader')
+        resp = requests.get(f'http://127.0.0.1:{5000 + leader}/is_leader')
         if resp.status_code != 200:
             continue
 
         resp_leader = json.loads(resp.content)['leader']
-        if resp_leader != -1:
-            return flight_computers[resp_leader]
-
+        if resp_leader:
+            print('found leader', leader)
+            return flight_computers[leader]
+        # print(leader)
         leader = (leader + 1) % len(flight_computers)
-
-
-def request_action(leader, state):
-    resp = requests.get(f'http://127.0.0.1:{5000 + leader}/request_action', data=json.dumps(state))
-    if resp.status_code == 200:
-        return json.loads(resp.content)
-    return None
 
 
 import time
@@ -105,23 +98,25 @@ complete = False
 leader = select_leader()
 
 try:
+    state = readout_state()
     while not complete:
-        if timestep % 1000 == 0:
+        if timestep % 10 == 0:
             print(timestep, '/', len(states))
-        state = readout_state()
         state_decided = leader.decide_on_state(state)
-        if not state_decided:
+        if not state_decided: # Always False
             print('State not decided!')
             continue
         action = leader.sample_next_action()
         if action is None:
             complete = True
             continue
-        if leader.decide_on_action(action):
+        elif action == {}:
+            leader = select_leader()
+            continue
+        if leader.decide_on_action(action): # Always True
             execute_action(action)
             timestep += 1
-        else:
-            print('Action not decided!')
+            state = readout_state()
 except Exception as e:
     import traceback
     traceback.print_exc()
