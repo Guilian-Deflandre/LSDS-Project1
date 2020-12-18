@@ -46,12 +46,7 @@ class ActionRequest(BaseModel):
 
 
 class ActionReply(BaseModel):
-    action: dict
-
-
-class ProposeAction(BaseModel):
-    state: dict
-    action: dict
+    action: typing.Optional[dict]
 
 
 class CommitAction(BaseModel):
@@ -80,6 +75,7 @@ class Node:
         self._voted_for = None
         self.leader = -1
         self.computer = computer
+        self.session = requests.Session()
     
     def __getattribute__(self, attr):
         return object.__getattribute__(self, attr)
@@ -182,7 +178,7 @@ class Node:
         def send_propose_action(id):
             try:
                 url = f'http://localhost:{5000 + id}/propose_action'
-                resp = requests.get(url, data=request.json())
+                resp = self.session.get(url, data=request.json(), timeout=1)
                 if resp.status_code == 200:
                     return ActionReply.parse_raw(resp.content)
                 else:
@@ -219,13 +215,11 @@ class Node:
         old_stage_index = self.computer.current_stage_index
         self.computer.deliver_action(request.action)
         request.current_stage_index = self.computer.current_stage_index
-        print(old_stage_index)
-        print(self.computer.current_stage_index)
 
         def send_update_action(id):
             try:
                 url = f'http://localhost:{5000 + id}/update_action'
-                resp = requests.get(url, data=request.json())
+                resp = self.session.get(url, data=request.json(), timeout=1)
                 if resp.status_code == 200:
                     return CommitActionReply.parse_raw(resp.content)
                 else:
@@ -312,7 +306,7 @@ class Node:
                 request = VoteRequest(candidate=self.id,
                                       term=saved_current_term)
                 url = f'http://localhost:{5000 + id}/vote_request'
-                resp = requests.get(url, data=request.json())
+                resp = self.session.get(url, data=request.json(), timeout=1)
                 if resp.status_code == 200:
                     reply = VoteReply.parse_raw(resp.content)
                     return id, reply
@@ -404,7 +398,7 @@ class Node:
                 request = AppendEntries(leader=self.id,
                                         term=saved_current_term)
                 url = f'http://localhost:{5000 + id}/append_entries'
-                resp = requests.get(url, data=request.json())
+                resp = self.session.get(url, data=request.json())
                 if resp.status_code == 200:
                     reply = AppendEntriesReply.parse_raw(resp.content)
                     return id, reply

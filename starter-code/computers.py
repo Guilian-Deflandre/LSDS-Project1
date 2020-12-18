@@ -26,6 +26,7 @@ class FlightComputer:
         self.stage_handler = self.stage_handlers[self.current_stage_index]
         self.id = id
         self.raft = Node(id, self, election_timeout, heartbeat)
+        self.session = requests.Session()
 
     def start(self):
         self.raft.start()
@@ -111,7 +112,7 @@ class FlightComputer:
 
     def sample_next_action(self):
         try:
-            resp = requests.get(f'http://127.0.0.1:{5000 + self.id}/request_action', data=ActionRequest(state=self.state).json())
+            resp = self.session.get(f'http://127.0.0.1:{5000 + self.id}/request_action', data=ActionRequest(state=self.state).json())
             if resp.status_code == 200:
                 reply = ActionReply.parse_raw(resp.content)
                 return reply.action
@@ -126,7 +127,7 @@ class FlightComputer:
 
     def decide_on_action(self, action):
         try:
-            resp = requests.get(f'http://127.0.0.1:{5000 + self.id}/commit_action', data=CommitAction(action=action).json())
+            resp = self.session.get(f'http://127.0.0.1:{5000 + self.id}/commit_action', data=CommitAction(action=action).json())
             if resp.status_code == 200:
                 reply = CommitActionReply.parse_raw(resp.content)
                 return reply.result
