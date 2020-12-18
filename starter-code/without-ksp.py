@@ -21,7 +21,6 @@ parser.add_argument("--correct-fraction", type=float, default=1.0, help="Fractio
 parser.add_argument("--flight-computers", type=int, default=3, help="Number of flight computers (default: 3).")
 arguments, _ = parser.parse_known_args()
 
-
 def readout_state():
     return states[timestep]
 
@@ -38,7 +37,7 @@ def execute_action(action):
             print(action)
             print(timestep)
             for i in range(-5, 5):
-                print(('> ' if i == 0 else '') + str(actions[timestep-1+i]))
+                print(('> ' if i == 0 else '') + str(actions[timestep+i]))
             raise e
 
 
@@ -51,7 +50,7 @@ def start_computer(id, n, state, random_computer=False):
         computer = random_flight_computer()
     else:
         computer = FlightComputer
-
+    print(computer)
     computer = computer(state, id, election_timeout=timeout*scale, heartbeat=heartbeat*scale)
     return computer
 
@@ -81,7 +80,7 @@ def allocate_flight_computers(arguments):
     time.sleep(1) # Wait for HTTP API to start
 
     for computer in flight_computers:
-        resp = requests.get(f'http://127.0.0.1:{5000 + computer.id}/start_raft')
+        resp = requests.get(f'http://127.0.0.1:{5000 + computer.id}/start_raft', timeout=1)
         if resp.status_code != 200:
             raise Exception('Node raft not started')
 
@@ -91,7 +90,7 @@ def allocate_flight_computers(arguments):
 def select_leader():
     leader = 0
     while True:
-        resp = requests.get(f'http://127.0.0.1:{5000 + leader}/is_leader')
+        resp = requests.get(f'http://127.0.0.1:{5000 + leader}/is_leader', timeout=1)
         if resp.status_code != 200:
             continue
 
@@ -104,14 +103,14 @@ def select_leader():
         time.sleep(0.5)
 
 
-try:
-    # Connect with Kerbal Space Program
-    flight_computers = allocate_flight_computers(arguments)
+# Connect with Kerbal Space Program
+flight_computers = allocate_flight_computers(arguments)
 
+try:
     complete = False
     leader = select_leader()
     t0 = time.time()
-    timestep = 3830
+    timestep = 0
     state = readout_state()
 
     while not complete:
@@ -120,6 +119,8 @@ try:
             if diff == 0:
                 diff = 1
             speed = timestep / diff
+            if speed == 0:
+                speed = 1
             left = len(states) - timestep
             remaining_time = int(left / speed)
             print(f'{timestep}/{len(states)}', f'{speed:3.0f} item/s', remaining_time, 'sec')
