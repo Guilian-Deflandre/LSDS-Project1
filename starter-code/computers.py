@@ -4,7 +4,7 @@ from threading import Thread
 import requests
 import json
 
-from raft import Node, ActionRequest, ActionReply
+from raft import Node, ActionRequest, ActionReply, CommitAction, CommitActionReply
 
 class FlightComputer:
     def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
@@ -116,16 +116,24 @@ class FlightComputer:
                 reply = ActionReply.parse_raw(resp.content)
                 return reply.action
             else:
-                return None
+                return {}
         except requests.exceptions.RequestException:
-            return None
+            return {}
 
     def decide_on_state(self, state):
         self.deliver_state(state)
         return True
 
     def decide_on_action(self, action):
-        return True
+        try:
+            resp = requests.get(f'http://127.0.0.1:{5000 + self.id}/commit_action', data=CommitAction(action=action).json())
+            if resp.status_code == 200:
+                reply = CommitActionReply.parse_raw(resp.content)
+                return reply.result
+            else:
+                return False
+        except requests.exceptions.RequestException as e:
+            return False
 
     def acceptable_state(self, state):
         return True
@@ -138,10 +146,13 @@ class FlightComputer:
                 accept = False
 
         return accept
-
-    def deliver_action(self, action):
+    
+    def deliver_action(self, action, current_stage_index=None):
         if "next_stage" in action and action["next_stage"]:
-            self.current_stage_index += 1
+            if current_stage_index is None:
+                self.current_stage_index += 1
+            else:
+                self.current_stage_index = current_stage_index
             self.stage_handler = self.stage_handlers[self.current_stage_index]
 
     def deliver_state(self, state):

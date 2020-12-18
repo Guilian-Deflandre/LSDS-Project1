@@ -28,9 +28,18 @@ def readout_state():
 
 def execute_action(action):
     # print(action)
-    # print(actions[timestep])
     for k in action.keys():
-        assert(action[k] == actions[timestep][k])
+        try:
+            assert(action[k] == actions[timestep-1][k])
+        except Exception as e:
+            print(k)
+            # print(action[k])
+            # print(actions[timestep-1][k])
+            print(action)
+            print(timestep)
+            for i in range(-5, 5):
+                print(('> ' if i == 0 else '') + str(actions[timestep-1+i]))
+            raise e
 
 
 def start_computer(id, n, state, random_computer=False):
@@ -62,17 +71,21 @@ def allocate_flight_computers(arguments):
         flight_computers.append(computer)
 
     for computer in flight_computers:
-        computer.daemon = True
-        computer.start()
         peers = flight_computers[:]
         peers.remove(computer)
         for peer in peers:
             computer.add_peer(peer)
+        computer.daemon = True
+        computer.start()
+
+    time.sleep(1) # Wait for HTTP API to start
+
+    for computer in flight_computers:
+        resp = requests.get(f'http://127.0.0.1:{5000 + computer.id}/start_raft')
+        if resp.status_code != 200:
+            raise Exception('Node raft not started')
 
     return flight_computers
-
-# Connect with Kerbal Space Program
-flight_computers = allocate_flight_computers(arguments)
 
 
 def select_leader():
@@ -88,24 +101,34 @@ def select_leader():
             return flight_computers[leader]
         # print(leader)
         leader = (leader + 1) % len(flight_computers)
+        time.sleep(0.5)
 
-
-import time
-time.sleep(1)
-
-timestep = 1
-complete = False
-leader = select_leader()
 
 try:
+    # Connect with Kerbal Space Program
+    flight_computers = allocate_flight_computers(arguments)
+
+    complete = False
+    leader = select_leader()
+    t0 = time.time()
+    timestep = 3830
     state = readout_state()
+    
     while not complete:
-        if timestep % 10 == 0:
-            print(timestep, '/', len(states))
+        if timestep % 100 == 0:
+            diff = time.time() - t0
+            if diff == 0:
+                diff = 1
+            speed = timestep / diff
+            left = len(states) - timestep
+            remaining_time = int(left / speed)
+            print(f'{timestep}/{len(states)}', f'{speed:3.0f} item/s', remaining_time, 'sec')
+        
         state_decided = leader.decide_on_state(state)
         if not state_decided: # Always False
             print('State not decided!')
             continue
+
         action = leader.sample_next_action()
         if action is None:
             complete = True
@@ -113,10 +136,14 @@ try:
         elif action == {}:
             leader = select_leader()
             continue
-        if leader.decide_on_action(action): # Always True
+
+        if leader.decide_on_action(action):
             execute_action(action)
             timestep += 1
             state = readout_state()
+        else:
+            print('Action not decided')
+            continue
 except Exception as e:
     import traceback
     traceback.print_exc()

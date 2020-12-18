@@ -1,4 +1,4 @@
-from threading import RLock, main_thread
+from threading import Lock, main_thread
 from repeat_timer import RepeatedTimer
 from enum import Enum
 import requests
@@ -6,6 +6,7 @@ import sys
 import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
+import typing
 from time import monotonic as now
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -53,12 +54,20 @@ class ProposeAction(BaseModel):
     action: dict
 
 
+class CommitAction(BaseModel):
+    action: dict
+    current_stage_index: typing.Optional[int]
+
+class CommitActionReply(BaseModel):
+    result: bool
+
+
 class Node:
     def __init__(self, id, computer, election_timeout, heartbeat):
         super().__init__()
         self.id = id
         self.election_timeout = election_timeout
-        self._lock = RLock()
+        self._lock = Lock()
         self._time_last_requested_vote = now()
         self.state = NodeState.Follower
         self.peers = set()
@@ -71,6 +80,23 @@ class Node:
         self._voted_for = None
         self.leader = -1
         self.computer = computer
+    
+    def __getattribute__(self, attr):
+        return object.__getattribute__(self, attr)
+
+    def __setattr__(self, attr, value):
+        if attr == 'state':
+            from os import getpid
+            from threading import get_native_id
+            pid = getpid()
+            tid = get_native_id()
+            try:
+                print(f'[Node {self.id}][{pid}][{tid}][{id(self)}] state:', self.state, '->', value)
+            except:
+                print(f'[Node {self.id}][{pid}][{tid}][{id(self)}] state:', None, '->', value)
+            
+            
+        object.__setattr__(self, attr, value)
 
     def add_peer(self, peer):
         """
@@ -104,12 +130,18 @@ class Node:
         app.get('/request_action')(self.request_action)
         app.get('/propose_action')(self.propose_action)
         app.get('/stop')(self.stop)
-        self._start_election_timer()
+        app.get('/start_raft')(self.start_raft)
+        app.get('/commit_action')(self.commit_action)
+        app.get('/update_action')(self.update_action)
         self.proc = Process(target=uvicorn.run, args=(app, ),
                             kwargs={"host": "127.0.0.1",
                                     "port": "{}".format(5000 + self.id),
-                                    "log_level": "error"}, daemon=True)
+                                    "log_level": "error"}, daemon=False)
         self.proc.start()
+    
+    def start_raft(self):
+        with self._lock:
+            self._start_election_timer()
 
     def is_leader(self):
         """
@@ -121,7 +153,14 @@ class Node:
         _: LeaderReply
             The leader format using LeaderReply
         """
-        return LeaderReply(leader=self.state == NodeState.Leader)
+
+        from os import getpid
+        from threading import get_native_id
+        pid = getpid()
+        tid = get_native_id()
+        
+        with self._lock:
+            return LeaderReply(leader=self.state == NodeState.Leader)
 
     def request_action(self, request: ActionRequest):
         """
@@ -133,20 +172,19 @@ class Node:
         _: ActionReply
             The reply of the request made of nothing
         """
-        # print('Leader recv action request')
-        if self.state != NodeState.Leader:
-            print('nope', self.leader, self.id)
-            return ActionReply(action={})
+        with self._lock:
+            # print('Leader recv action request')
+            if self.state != NodeState.Leader:
+                return ActionReply(action={})
 
         action_leader = self.compute_action(request.state)
 
         def send_propose_action(id):
             try:
                 url = f'http://localhost:{5000 + id}/propose_action'
-                resp = requests.get(url, data=request, timeout=1)
+                resp = requests.get(url, data=request.json())
                 if resp.status_code == 200:
-                    reply = json.dumps(resp.content)
-                    return reply
+                    return ActionReply.parse_raw(resp.content)
                 else:
                     return None
             except:
@@ -158,7 +196,7 @@ class Node:
             for reply in replies:
                 if reply is None:
                     continue
-                elif reply == action_leader:
+                elif reply.action == action_leader:
                     vote_received += 1
 
         if self.state == NodeState.Leader and vote_received >= len(self.peers) / 2:
@@ -166,14 +204,58 @@ class Node:
         else:
             return ActionReply(action={})
     
-    def propose_action(self, request):
+    def propose_action(self, request: ActionRequest):
         """
         """
         return ActionReply(action=self.compute_action(request.state))
     
+    def commit_action(self, request: CommitAction):
+        """
+        """
+        with self._lock:
+            if self.state != NodeState.Leader:
+                return CommitActionReply(result=False)
+
+        old_stage_index = self.computer.current_stage_index
+        self.computer.deliver_action(request.action)
+        request.current_stage_index = self.computer.current_stage_index
+        print(old_stage_index)
+        print(self.computer.current_stage_index)
+
+        def send_update_action(id):
+            try:
+                url = f'http://localhost:{5000 + id}/update_action'
+                resp = requests.get(url, data=request.json())
+                if resp.status_code == 200:
+                    return CommitActionReply.parse_raw(resp.content)
+                else:
+                    return None
+            except:
+                return None
+
+        commit_received = 0
+        with ThreadPoolExecutor() as executor:
+            replies = executor.map(send_update_action, self.peers)
+            for reply in replies:
+                if reply is None:
+                    continue
+                elif reply.result:
+                    commit_received += 1
+
+        if self.state == NodeState.Leader and commit_received >= len(self.peers) / 2:
+            return CommitActionReply(result=True)
+        else:
+            # Commit failed, revert leader to previous stage_index
+            self.computer.deliver_action(action, old_stage_index)
+            return CommitActionReply(result=False)
+
+    def update_action(self, request: CommitAction):
+        self.computer.deliver_action(request.action, request.current_stage_index)
+        return CommitActionReply(result=True)
+
     def compute_action(self, state):
         self.computer.deliver_state(state)
-        action = self.computer.stange_handler()
+        action = self.computer.stage_handler()
         return action
 
     def stop(self):
@@ -185,10 +267,11 @@ class Node:
         RETURN
         /
         """
-        self._election_timer.stop()
-        self._leader_send_heartbeat_timer.stop()
-        self.state = NodeState.Dead
-        self.proc.kill()
+        with self._lock:
+            self._election_timer.stop()
+            self._leader_send_heartbeat_timer.stop()
+            self.state = NodeState.Dead
+            self.proc.kill()
         # os.kill(self.proc.pid, signal.SIGTERM)
 
     def _start_election_timer(self):
@@ -201,9 +284,8 @@ class Node:
         RETURN
         /
         """
-        # with self._lock:
         self._term_start_election_timer = self.term
-        self._election_timer.start()
+        self._election_timer.restart()
 
     def start_election(self):
         """
@@ -215,11 +297,11 @@ class Node:
         /
         """
         print(f'[Node {self.id}][Candidate] Now Candidate')
-        # with self._lock:
         self.state = NodeState.Candidate
         self.term += 1
         self.leader = -1
         saved_current_term = self.term
+        self._leader_send_heartbeat_timer.stop()
 
         # Always vote for ourself in elections
         self._time_last_requested_vote = now()
@@ -257,7 +339,7 @@ class Node:
             self.become_leader()
             return
 
-        # Did win the election nor found a node with a higher term, let's start
+        # Didn't win the election nor found a node with a higher term, let's start
         # a new election
         self._start_election_timer()
 
@@ -273,6 +355,8 @@ class Node:
         RETURN
         /
         """
+        # if self.state != NodeState.Follower or self.term != term or self.leader != leader:
+        print(f'[Node {self.id}][Follower] Now follower')
         self.state = NodeState.Follower
         self.term = term
         self.leader = leader
@@ -282,7 +366,8 @@ class Node:
         # Start the election timer as a Follower switches to a Candidate if the
         # timer timeout
         self._start_election_timer()
-
+        self._leader_send_heartbeat_timer.stop()
+    
     def become_leader(self):
         """
         Change the current state of self into a leader one
@@ -307,11 +392,12 @@ class Node:
         RETURN
         /
         """
-        if self.state != NodeState.Leader:
-            self._leader_send_heartbeat_timer.stop()
-            return
+        with self._lock:
+            if self.state != NodeState.Leader:
+                self._leader_send_heartbeat_timer.stop()
+                return
 
-        saved_current_term = self.term
+            saved_current_term = self.term
 
         def send_heartbeat(id):
             try:
@@ -351,18 +437,23 @@ class Node:
         RETURN
         /
         """
-        print(f'[Node {self.id}][{self.state.name}] Received vote request ' +
-              f'from {request.candidate} at term {request.term}')
-        # TODO Check state=dead ?
-        if request.term > self.term:
-            self.become_follower(request.term, request.candidate)
+        print('vote')
+        with self._lock:
+            print(f'[Node {self.id}][{self.state.name}] Received vote request ' +
+                f'from {request.candidate} at term {request.term}')
+            # TODO Check state=dead ?
+            if request.term > self.term:
+                if self.state == NodeState.Leader:
+                    print('thats the tick')
+                print(f'[Node {self.id}]get vote request: req.term > self.term', request.term, self.term)
+                self.become_follower(request.term, request.candidate)
 
-        if self.term == request.term and (self._voted_for is None or self._voted_for == request.candidate):
-            reply = VoteReply(granted=True, term=self.term)
-        else:
-            reply = VoteReply(granted=False, term=self.term)
+            if self.term == request.term and (self._voted_for is None or self._voted_for == request.candidate):
+                reply = VoteReply(granted=True, term=self.term)
+            else:
+                reply = VoteReply(granted=False, term=self.term)
 
-        return reply
+            return reply
 
     def get_append_entries(self, entry: AppendEntries):
         """
@@ -375,19 +466,22 @@ class Node:
         RETURN
         /
         """
-        # TODO Check state=dead ?
-        if entry.term > self.term:
-            self.become_follower(entry.term, entry.leader)
-
-        success = False
-        if entry.term == self.term:
-            if self.state == NodeState.Follower:
+        with self._lock:
+            # TODO Check state=dead ?
+            if entry.term > self.term:
+                print(f'[Node {self.id}]get append entries: entry.term > self.term', entry.term, self.term)
                 self.become_follower(entry.term, entry.leader)
-            self._time_last_requested_vote = now()
-            success = True
-        reply = AppendEntriesReply(success=success, term=self.term)
 
-        return reply
+            success = False
+            if entry.term == self.term:
+                if self.state != NodeState.Follower:
+                    print(f'[Node {self.id}]get append entries: refollowing', entry)
+                    self.become_follower(entry.term, entry.leader)
+                self._time_last_requested_vote = now()
+                success = True
+            reply = AppendEntriesReply(success=success, term=self.term)
+
+            return reply
 
     def _election_timer_timeout(self):
         """
@@ -398,16 +492,17 @@ class Node:
         RETURN
         /
         """
-        if self.state == NodeState.Leader:
-            self._election_timer.stop()
+        with self._lock:
+            if self.state == NodeState.Leader:
+                self._election_timer.stop()
 
-        if self.term != self._term_start_election_timer:
-            self._election_timer.stop()
+            if self.term != self._term_start_election_timer:
+                self._election_timer.stop()
 
-        if now() - self._time_last_requested_vote >= self.election_timeout:
-            '''
-            Time elapsed since last VoteRequest received from the leader or
-            from a candidate is more than timeout
-            '''
-            self._election_timer.stop()
-            self.start_election()
+            if now() - self._time_last_requested_vote >= self.election_timeout:
+                '''
+                Time elapsed since last VoteRequest received from the leader or
+                from a candidate is more than timeout
+                '''
+                self._election_timer.stop()
+                self.start_election()
