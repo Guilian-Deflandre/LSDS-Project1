@@ -121,6 +121,7 @@ class Node:
         _: LeaderReply
             The leader format using LeaderReply
         """
+        print(self.id, ": ", self.leader)
         return LeaderReply(leader=self.state == NodeState.Leader)
 
     def request_action(self, request: ActionRequest):
@@ -165,12 +166,12 @@ class Node:
             return ActionReply(action=action_leader)
         else:
             return ActionReply(action={})
-    
+
     def propose_action(self, request):
         """
         """
         return ActionReply(action=self.compute_action(request.state))
-    
+
     def compute_action(self, state):
         self.computer.deliver_state(state)
         action = self.computer.stange_handler()
@@ -240,6 +241,7 @@ class Node:
                 return None
 
         vote_received = 0
+
         with ThreadPoolExecutor() as executor:
             replies = executor.map(send_request, self.peers)
             for id, reply in replies:
@@ -252,7 +254,7 @@ class Node:
                     vote_received += 1
 
         if (self.state == NodeState.Candidate and
-           vote_received * 2 > len(self.peers)):
+            vote_received * 2 > len(self.peers)):
             # Won more than half of the votes, we are the leader now
             self.become_leader()
             return
@@ -308,7 +310,6 @@ class Node:
         /
         """
         if self.state != NodeState.Leader:
-            self._leader_send_heartbeat_timer.stop()
             return
 
         saved_current_term = self.term
@@ -366,8 +367,8 @@ class Node:
 
     def get_append_entries(self, entry: AppendEntries):
         """
-        Get the append entries of the election leader mechanism from all peers
-        consensus cluster which are actions of computers
+        Send append entries of the election leader mechanism to all peers
+        consensus cluster to implement the leader heartbeat mechanism
 
         PARAMETERS
         entry: AppendEntries
@@ -381,7 +382,7 @@ class Node:
 
         success = False
         if entry.term == self.term:
-            if self.state == NodeState.Follower:
+            if self.state != NodeState.Follower:
                 self.become_follower(entry.term, entry.leader)
             self._time_last_requested_vote = now()
             success = True

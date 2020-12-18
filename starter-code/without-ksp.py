@@ -83,12 +83,13 @@ def select_leader():
             continue
 
         resp_leader = json.loads(resp.content)['leader']
+
         if resp_leader:
             print('found leader', leader)
             return flight_computers[leader]
         # print(leader)
         leader = (leader + 1) % len(flight_computers)
-
+        time.sleep(2)
 
 import time
 time.sleep(1)
@@ -107,10 +108,12 @@ try:
             print('State not decided!')
             continue
         action = leader.sample_next_action()
+        print(action)
         if action is None:
             complete = True
             continue
-        elif action == {}:
+        if action == {}:
+            print("here")
             leader = select_leader()
             continue
         if leader.decide_on_action(action): # Always True
