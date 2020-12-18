@@ -53,4 +53,6 @@ dependencies:
   - pip:
     - krpc==0.4.8
     - protobuf==3.13.0
-
+    - fastapi==0.62.0
+    - requests==2.25.0
+    - uvicorn==0.13.0
