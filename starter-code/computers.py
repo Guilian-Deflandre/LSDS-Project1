@@ -2,7 +2,6 @@ import numpy as np
 import time
 from threading import Thread
 import requests
-import json
 
 from raft import Node, ActionRequest, ActionReply, CommitAction, CommitActionReply
 

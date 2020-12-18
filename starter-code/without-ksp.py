@@ -21,7 +21,6 @@ parser.add_argument("--correct-fraction", type=float, default=1.0, help="Fractio
 parser.add_argument("--flight-computers", type=int, default=3, help="Number of flight computers (default: 3).")
 arguments, _ = parser.parse_known_args()
 
-print('actions:', actions[:2])
 def readout_state():
     return states[timestep]
 
@@ -51,7 +50,7 @@ def start_computer(id, n, state, random_computer=False):
         computer = random_flight_computer()
     else:
         computer = FlightComputer
-
+    print(computer)
     computer = computer(state, id, election_timeout=timeout*scale, heartbeat=heartbeat*scale)
     return computer
 
