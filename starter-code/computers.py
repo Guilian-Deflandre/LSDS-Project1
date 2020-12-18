@@ -24,7 +24,7 @@ class FlightComputer(Thread):
         self.stage_handler = self.stage_handlers[self.current_stage_index]
         self.id = id
         self.raft = Node(id, election_timeout, heartbeat)
-    
+
     def run(self):
         self.raft.start()
 
@@ -151,10 +151,10 @@ class FlightComputer(Thread):
 
     def deliver_state(self, state):
         self.state = state
-    
+
     def stop(self):
         self.raft.stop()
-
+        self.join()
 
 
 class FullThrottleFlightComputer(FlightComputer):
