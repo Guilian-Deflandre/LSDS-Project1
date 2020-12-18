@@ -30,7 +30,7 @@ def execute_action(action):
     # print(action)
     for k in action.keys():
         try:
-            assert(action[k] == actions[timestep-1][k])
+            assert(action[k] == actions[timestep][k])
         except Exception as e:
             print(k)
             # print(action[k])
@@ -113,7 +113,7 @@ try:
     t0 = time.time()
     timestep = 3830
     state = readout_state()
-    
+
     while not complete:
         if timestep % 100 == 0:
             diff = time.time() - t0
@@ -123,7 +123,7 @@ try:
             left = len(states) - timestep
             remaining_time = int(left / speed)
             print(f'{timestep}/{len(states)}', f'{speed:3.0f} item/s', remaining_time, 'sec')
-        
+
         state_decided = leader.decide_on_state(state)
         if not state_decided: # Always False
             print('State not decided!')
