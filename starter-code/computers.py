@@ -1,8 +1,10 @@
 import numpy as np
 import time
 from threading import Thread
+import requests
+import json
 
-from raft import Node
+from raft import Node, ActionRequest, ActionReply
 
 class FlightComputer:
     def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
@@ -23,7 +25,7 @@ class FlightComputer:
             self._handle_stage_9]
         self.stage_handler = self.stage_handlers[self.current_stage_index]
         self.id = id
-        self.raft = Node(id, election_timeout, heartbeat)
+        self.raft = Node(id, self, election_timeout, heartbeat)
 
     def start(self):
         self.raft.start()
@@ -108,29 +110,22 @@ class FlightComputer:
         self.completed = True
 
     def sample_next_action(self):
-        return self.stage_handler()
+        try:
+            resp = requests.get(f'http://127.0.0.1:{5000 + self.id}/request_action', data=ActionRequest(state=self.state).json())
+            if resp.status_code == 200:
+                reply = ActionReply.parse_raw(resp.content)
+                return reply.action
+            else:
+                return None
+        except requests.exceptions.RequestException:
+            return None
 
     def decide_on_state(self, state):
-        acceptations = [p.acceptable_state(state) for p in self.peers]
-        decided = sum(acceptations) / (len(self.peers) + 1) > 0.5
-
-        if decided:
-            for p in self.peers:
-                p.deliver_state(state)
-            self.deliver_state(state)
-
-        return decided
+        self.deliver_state(state)
+        return True
 
     def decide_on_action(self, action):
-        acceptations = [p.acceptable_action(action) for p in self.peers]
-        decided = sum(acceptations) / (len(self.peers) + 1) > 0.5
-
-        if decided:
-            for p in self.peers:
-                p.deliver_action(action)
-            self.deliver_action(action)
-
-        return decided
+        return True
 
     def acceptable_state(self, state):
         return True
