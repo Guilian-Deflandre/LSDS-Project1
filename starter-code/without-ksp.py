@@ -51,15 +51,14 @@ def allocate_flight_computers(arguments):
     flight_computers = []
     n_fc = arguments.flight_computers
     n_correct_fc = math.ceil(arguments.correct_fraction * n_fc)
-    n_incorrect_fc = n_fc - n_correct_fc
     state = readout_state()
 
     for i in range(n_correct_fc):
         computer = start_computer(i, n_fc, state)
         flight_computers.append(computer)
 
-    for _ in range(n_incorrect_fc):
-        computer = start_computer(i, n_fc, state)
+    for i in range(n_correct_fc, n_fc):
+        computer = start_computer(i, n_fc, state, random_computer=True)
         flight_computers.append(computer)
 
     for computer in flight_computers:

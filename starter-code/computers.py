@@ -158,8 +158,8 @@ class FlightComputer:
 
 class FullThrottleFlightComputer(FlightComputer):
 
-    def __init__(self, state, id):
-        super(FullThrottleFlightComputer, self).__init__(state, id)
+    def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
+        super().__init__(state, id, election_timeout, heartbeat)
 
     def sample_next_action(self):
         action = super(FullThrottleFlightComputer, self).sample_next_action()
@@ -170,8 +170,8 @@ class FullThrottleFlightComputer(FlightComputer):
 
 class RandomThrottleFlightComputer(FlightComputer):
 
-    def __init__(self, state, id):
-        super(RandomThrottleFlightComputer, self).__init__(state, id)
+    def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
+        super().__init__(state, id, election_timeout, heartbeat)
 
     def sample_next_action(self):
         action = super(RandomThrottleFlightComputer, self).sample_next_action()
@@ -182,8 +182,8 @@ class RandomThrottleFlightComputer(FlightComputer):
 
 class SlowFlightComputer(FlightComputer):
 
-    def __init__(self, state, id):
-        super(SlowFlightComputer, self).__init__(state, id)
+    def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
+        super().__init__(state, id, election_timeout, heartbeat)
 
     def sample_next_action(self):
         action = super(SlowFlightComputer, self).sample_next_action()
@@ -194,8 +194,8 @@ class SlowFlightComputer(FlightComputer):
 
 class CrashingFlightComputer(FlightComputer):
 
-    def __init__(self, state, id):
-        super(CrashingFlightComputer, self).__init__(state, id)
+    def __init__(self, state, id, election_timeout=1, heartbeat=0.1):
+        super().__init__(state, id, election_timeout, heartbeat)
 
     def sample_next_action(self):
         action = super(SlowFlightComputer, self).sample_next_action()
