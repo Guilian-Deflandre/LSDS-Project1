@@ -114,6 +114,7 @@ class Node:
         _: LeaderReply
             The leader format using LeaderReply
         """
+        print(self.leader)
         return LeaderReply(leader=self.leader)
 
     def request_action(self, request: ActionRequest):
